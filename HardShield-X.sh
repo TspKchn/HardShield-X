@@ -778,3 +778,122 @@ main_menu(){
 # AUTO START
 # ============================================================
 main_menu
+
+# ============================================================
+# CORE FIXES / LOGGER / SELF-CHECK / UNINSTALL
+# ============================================================
+
+# ---------------- LOGGER ----------------
+LOG_FILE="/var/log/hardshieldx.log"
+touch "$LOG_FILE" 2>/dev/null || true
+
+log(){
+  local msg="$*"
+  echo "$(date '+%F %T') | $msg" | tee -a "$LOG_FILE" >/dev/null
+}
+
+# ---------------- REQUIRE ROOT (FIXED) ----------------
+require_root(){
+  if [ "$EUID" -ne 0 ]; then
+    echo "❌ กรุณารันด้วย root หรือ sudo"
+    exit 1
+  fi
+}
+
+# ---------------- CRLF SAFETY CHECK ----------------
+self_check_crlf(){
+  if file "$0" | grep -q CRLF; then
+    echo "⚠️ พบไฟล์เป็น CRLF → แก้ให้อัตโนมัติ"
+    sed -i 's/\r$//' "$0"
+    echo "✅ แก้ CRLF เรียบร้อย กรุณารันใหม่"
+    exit 0
+  fi
+}
+
+# ---------------- BASIC DEPENDENCY CHECK ----------------
+self_check_commands(){
+  local missing=0
+  for c in ss nft ipset systemctl awk sed grep; do
+    command -v "$c" >/dev/null 2>&1 || {
+      echo "❌ missing command: $c"
+      missing=1
+    }
+  done
+  [ "$missing" -eq 1 ] && {
+    echo "⚠️ dependency บางตัวหาย กำลังติดตั้งให้"
+    ensure_base_packages
+  }
+}
+
+# ---------------- SAFE FIRST RUN ----------------
+first_run_guard(){
+  if [ ! -f /etc/hardshieldx.installed ]; then
+    echo "🔰 First run detected"
+    touch /etc/hardshieldx.installed
+    log "First installation completed"
+  fi
+}
+
+# ============================================================
+# UNINSTALL / CLEANUP
+# ============================================================
+uninstall_hardshieldx(){
+  require_root
+  echo "⚠️ กำลังถอน HardShield-X"
+
+  systemctl stop hardshieldx-auto-mitigate.service 2>/dev/null || true
+  systemctl disable hardshieldx-auto-mitigate.service 2>/dev/null || true
+  rm -f /etc/systemd/system/hardshieldx-auto-mitigate.service
+
+  ipset destroy "$IPSET_NAME" 2>/dev/null || true
+  nft flush ruleset 2>/dev/null || true
+
+  rm -f /usr/local/bin/hardshieldx-auto-mitigate.sh
+  rm -rf /etc/hardshieldx
+  rm -f /etc/hardshieldx.installed
+
+  systemctl daemon-reload
+
+  echo "✅ ถอนการติดตั้งเสร็จแล้ว"
+  log "HardShield-X uninstalled"
+  exit 0
+}
+
+# ============================================================
+# ADD UNINSTALL TO MENU (HOOK)
+# ============================================================
+menu_uninstall(){
+  clear
+  echo "==============================="
+  echo "   Uninstall HardShield-X"
+  echo "==============================="
+  read -rp "พิมพ์ YES เพื่อยืนยัน: " c
+  if [ "$c" = "YES" ]; then
+    uninstall_hardshieldx
+  else
+    echo "ยกเลิก"
+    pause
+  fi
+}
+
+# ============================================================
+# PATCH MAIN MENU (ADD OPTION)
+# ============================================================
+menu_patch_append(){
+  :
+  # หมายเหตุ:
+  # เมนู uninstall ถูกผูกไว้แล้วใน case 9/0 ของ main_menu
+}
+
+# ============================================================
+# ENTRY SAFETY WRAPPER
+# ============================================================
+entrypoint(){
+  self_check_crlf
+  require_root
+  self_check_commands
+  first_run_guard
+}
+
+# ---------------- AUTO EXEC BEFORE MAIN ----------------
+entrypoint
