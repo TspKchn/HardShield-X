@@ -317,6 +317,27 @@ auto_detect_ports(){
   color green "Auto-detected UDP: ${ALLOWED_UDP[*]}"
 }
 
+# Convert detected lists (detect_services) into ALLOWED lists and apply nft rules
+prepare_allowed_lists_from_detect(){
+  # prefer auto_detect_ports if available
+  if [ -n "${ALLOWED_TCP+x}" ] && [ ${#ALLOWED_TCP[@]} -gt 0 ]; then
+    : # already have ALLOWED_TCP set by auto_detect_ports
+  else
+    detect_services || true
+    ALLOWED_TCP=("${DETECTED_TCP_PORTS[@]:-}")
+    ALLOWED_UDP=("${DETECTED_UDP_PORTS[@]:-}")
+  fi
+  # dedupe and sort
+  ALLOWED_TCP=( $(printf "%s
+" "${ALLOWED_TCP[@]:-}" | grep -E '^[0-9]+$' | sort -n -u) )
+  ALLOWED_UDP=( $(printf "%s
+" "${ALLOWED_UDP[@]:-}" | grep -E '^[0-9]+$' | sort -n -u) )
+  color green "Prepared ALLOWED_TCP: ${ALLOWED_TCP[*]}"
+  color green "Prepared ALLOWED_UDP: ${ALLOWED_UDP[*]}"
+  # apply nft rules automatically after preparing lists
+  apply_nft || true
+}
+
 ### ---------------- AUTO MITIGATION (Safe/Aggressive/Extreme) ----------------
 AUTOMIT_SCRIPT="/usr/local/bin/auto-mitigation.sh"
 AUTOMIT_SERVICE="/etc/systemd/system/auto-mitigation.service"
@@ -599,3 +620,4 @@ main_menu(){
 
 # start
 main_menu
+
